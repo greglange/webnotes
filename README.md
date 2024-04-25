@@ -1,67 +1,61 @@
-# webnotes
+# Webnotes
 
-# url
-key: value
+Webnotes is bookmarks plus notes.
 
-markup
+## Project status.
 
----
+This project is under initial development.
 
-title
-description
-author
-date
-tags
--
-body
--
-status
-error
+- anything might change
+- there are bugs
+- no tests
+- only verfied to work on Ubuntu
+- sparse documentation
 
----
+## Quick start usage.
 
-add p text images links md title description author tags
-set p text images links md title description author tags
-fill p text images links md current_date date title description author tags
-append p text images links md tags
-clear all body title description author date tags status error
-delete
-match
-copy
-move
-duplicates
-format
-head
+Make a directory to hold your webnotes.
 
----
+Change dir into your directory.
 
-Possible features/things to do:
+Run this command to create your first webnote:
 
-. move/keep the code in the right files
-. /pattern/ to match on patterns
-. show all content in a web notes directory
-. stats somehow?
-. maybe show the size of content or number of links by tags or date or author or domain or something
-. content size could be by directory, file, line and bytes
-. a view that shows the web note files you have in a directory tree view
-. be able to spectify a port to run the http on
-. print the url when running http
-. show notes that don't have titles
-. show notes that don't have a particular thing set
-. show notes that don't have one or more of the standard fields set
-. show notes that don't have a body
-. handle links to binary content properly (like pictures)
-. maybe make description a standard field
-. main to just grab a link
-. author command line
-. title command line
-. description command line
-. maybe have different capture methods p, t, something else
-. capture content by converting html to markdown
-. capture content by just grabbing the text
-. capture by grabbing links
-. capture by grabbing images
-. fill mains - fill title, date, content, links, p - does not overwrite a body that is already there
-. append main - adds to the content that is already there
-. check for valid tags - no space - no weird characters - remove space at start and end
-. be able to select sections by if they have a field or not
+`webnotes --add --vurl https://en.wikipedia.org/wiki/L._L._Zamenhof --p --title --vtags esperanto --out_file Languages.wn`
+
+Edit `Languages.wn` to have the notes you want.
+
+Run this command to build the index for your webnotes:
+
+`webnotes --index`
+
+Run this command to run a web server for your webnotes:
+
+`webnotes --http`
+
+Go to this url in your web browser to view your webnotes:
+
+[http://localhost:8080/](http://localhost:8080)
+
+## Version control system.
+
+Webnotes is meant to be used with a version control system like `git`.
+
+Some operations that modify webnotes files can fail in the middle and data can be lost.
+
+Commit your files before modifying them with the `webnotes` command.
+
+Verify the `webnotes` command modfied your files as expected.
+
+There is no need to keep the webnotes index directory `wn_index` under version control.
+
+## Main functions of webnotes command.
+
+## File selection flags.
+
+## Webnote selection flags.
+
+## Value flags.
+
+## File format.
+
+## Example usage.
