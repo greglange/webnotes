@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	md "github.com/gomarkdown/markdown"
+	"github.com/gomarkdown/markdown/ast"
 	mdhtml "github.com/gomarkdown/markdown/html"
 	mdparser "github.com/gomarkdown/markdown/parser"
 )
@@ -43,13 +45,19 @@ func NewField(name string) *Field {
 }
 
 type Section struct {
+	Note   string
 	URL    string
 	Fields []*Field
 	Body   []string
 }
 
-func NewSection(url string) *Section {
-	return &Section{url, make([]*Field, 0), make([]string, 0)}
+func NewSection(note, url string) (*Section, error) {
+	if note == "" && url == "" {
+		return nil, errors.New("note or url must be given")
+	} else if note != "" && url != "" {
+		return nil, errors.New("only a note or a url can be given")
+	}
+	return &Section{note, url, make([]*Field, 0), make([]string, 0)}, nil
 }
 
 // TODO: make better?
@@ -200,10 +208,13 @@ func (s *Section) DeleteTags(tags []string) {
 }
 
 func (s *Section) EqualsHost(host string) bool {
+	if s.URL == "" {
+		return false
+	}
+	url_, err := url.Parse(s.URL)
 	if host == "" {
 		return true
 	}
-	url_, err := url.Parse(s.URL)
 	if err != nil {
 		// TODO: ok to swallow this error?
 		return false
@@ -306,6 +317,9 @@ func (s *Section) FillFieldValue(name string, value string) {
 }
 
 func (s *Section) Get() (*goquery.Document, error) {
+	if s.URL == "" {
+		return nil, errors.New("Section does not have a url")
+	}
 	resp, err := http.Get(s.URL)
 	if err != nil {
 		s.SetError(err)
@@ -325,6 +339,10 @@ func (s *Section) Get() (*goquery.Document, error) {
 }
 
 func (s *Section) Head() {
+	if s.URL == "" {
+		s.SetError(errors.New("Section does not have a url"))
+		return
+	}
 	resp, err := http.Head(s.URL)
 	if err != nil {
 		s.SetError(err)
@@ -336,11 +354,26 @@ func (s *Section) Head() {
 }
 
 func (s *Section) Host() (string, error) {
+	if s.URL == "" {
+		return "", errors.New("Section does not have a url")
+	}
 	url_, err := url.Parse(s.URL)
 	if err != nil {
 		return "", err
 	}
 	return url_.Host, nil
+}
+
+func (s *Section) ID() (string, error) {
+	if s.Note == "" && s.URL == "" {
+		return "", errors.New("Section has no note and url")
+	} else if s.Note != "" && s.URL != "" {
+		return "", errors.New("Section has both note and url")
+	} else if s.Note != "" {
+		return s.Note, nil
+	} else {
+		return s.URL, nil
+	}
 }
 
 func (s *Section) SetBody(lines []string) {
@@ -397,7 +430,14 @@ func (s *Section) SetTags(tags []string) {
 
 func (s *Section) String() string {
 	lines := make([]string, 0)
-	lines = append(lines, fmt.Sprintf("# %s", s.URL))
+	if s.Note != "" {
+		lines = append(lines, fmt.Sprintf("# note://%s", s.Note))
+	} else if s.URL != "" {
+		lines = append(lines, fmt.Sprintf("# %s", s.URL))
+	} else {
+		// this should never happen if the section is properly formed
+		lines = append(lines, "# https://example.com")
+	}
 	for _, name := range orderedFieldNames {
 		field, ok := s.Field(name)
 		if ok {
@@ -454,6 +494,17 @@ func (wn *WebNote) AddSection(section *Section) {
 	wn.Sections = append(wn.Sections, section)
 }
 
+func (wn *WebNote) formatLastSection() {
+	if len(wn.Sections) > 0 {
+		section := wn.Sections[len(wn.Sections)-1]
+		if len(section.Body) > 0 {
+			if section.Body[len(section.Body)-1] == "" {
+				section.Body = section.Body[0 : len(section.Body)-1]
+			}
+		}
+	}
+}
+
 func LoadWebNote(filePath string) (*WebNote, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -469,16 +520,20 @@ func LoadWebNote(filePath string) (*WebNote, error) {
 		line := scanner.Text()
 		line = strings.TrimRightFunc(line, unicode.IsSpace)
 		lineNumber += 1
-		if strings.HasPrefix(line, "# http://") || strings.HasPrefix(line, "# https://") {
-			if len(webNote.Sections) > 0 {
-				section := webNote.Sections[len(webNote.Sections)-1]
-				if len(section.Body) > 0 {
-					if section.Body[len(section.Body)-1] == "" {
-						section.Body = section.Body[0 : len(section.Body)-1]
-					}
-				}
+		if strings.HasPrefix(line, "# note://") {
+			webNote.formatLastSection()
+			section, err = NewSection(line[len("# note://"):], "")
+			if err != nil {
+				return nil, err
 			}
-			section = NewSection(line[2:])
+			webNote.AddSection(section)
+			parseState = inHeader
+		} else if strings.HasPrefix(line, "# http://") || strings.HasPrefix(line, "# https://") {
+			webNote.formatLastSection()
+			section, err = NewSection("", line[len("# "):])
+			if err != nil {
+				return nil, err
+			}
 			webNote.AddSection(section)
 			parseState = inHeader
 		} else if parseState == inHeader {
@@ -597,16 +652,18 @@ func BuildIndex() error {
 			return err
 		}
 		for _, sct := range wn.Sections {
-			host, err := sct.Host()
-			if err == nil {
-				md5_ := fmt.Sprintf("%x", md5.Sum([]byte(host)))
-				ie, ok := hosts[md5_]
-				if !ok {
-					filePath := filepath.Join(IndexPath, "hosts", fmt.Sprintf("%s.wn", md5_))
-					ie = &NameWebNote{host, NewWebNote(filePath)}
-					hosts[md5_] = ie
+			if sct.URL != "" {
+				host, err := sct.Host()
+				if err == nil {
+					md5_ := fmt.Sprintf("%x", md5.Sum([]byte(host)))
+					ie, ok := hosts[md5_]
+					if !ok {
+						filePath := filepath.Join(IndexPath, "hosts", fmt.Sprintf("%s.wn", md5_))
+						ie = &NameWebNote{host, NewWebNote(filePath)}
+						hosts[md5_] = ie
+					}
+					ie.WebNote_.AddSection(sct)
 				}
-				ie.WebNote_.AddSection(sct)
 			}
 			value, ok := sct.FieldValue("author")
 			if ok {
@@ -729,8 +786,37 @@ func MarkdownToHTML(markdown string) string {
 	p := mdparser.NewWithExtensions(extensions)
 	doc := p.Parse([]byte(markdown))
 
+	isWebNoteLink := func(dest string) bool {
+		if strings.HasPrefix(dest, "http://") || strings.HasPrefix(dest, "https://") {
+			return false
+		}
+		if strings.HasSuffix(dest, ".wn") {
+			return false
+		}
+		return strings.Contains(dest, ".wn#")
+	}
+
+	renderHookLink := func(w io.Writer, node ast.Node, entering bool) (ast.WalkStatus, bool) {
+		link, ok := node.(*ast.Link)
+		if !ok {
+			return ast.GoToNext, false
+		}
+		if entering {
+			dest := string(link.Destination)
+			if !isWebNoteLink(dest) {
+				return ast.GoToNext, false
+			}
+			io.WriteString(w, fmt.Sprintf("<a href=\"/file/%s\">", dest))
+			return ast.GoToNext, true
+		}
+		return ast.GoToNext, false
+	}
+
 	htmlFlags := mdhtml.CommonFlags | mdhtml.HrefTargetBlank
-	opts := mdhtml.RendererOptions{Flags: htmlFlags}
+	opts := mdhtml.RendererOptions{
+		Flags:          htmlFlags,
+		RenderNodeHook: renderHookLink,
+	}
 	renderer := mdhtml.NewRenderer(opts)
 
 	return string(md.Render(doc, renderer))

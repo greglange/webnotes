@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/md5"
 	"errors"
 	"flag"
 	"fmt"
@@ -16,7 +17,6 @@ import (
 
 // TODO: command line flag to specify a root directory instead of defaulting to current directory
 // TODO: check if the wrong or unused options are specified for each main?
-// TODO: add note? url just equals webnote in file?
 // TODO: add main append
 // TODO: maybe add md body specifier that tries to change html to markdown
 
@@ -38,8 +38,12 @@ var mainFuncs = map[string]func(*options) error{
 	"tag":        mainTag,
 }
 
+var boolSectionMatchers = []string{
+	"note", "url",
+}
+
 var sectionMatchers = []string{
-	"author", "body", "date", "description", "error", "host", "status", "tags", "title", "url",
+	"author", "body", "date", "description", "error", "host", "note", "status", "tags", "title", "url",
 }
 
 var boolValueSpecifiers = []string{
@@ -55,7 +59,7 @@ var getValueSpecifiers = []string{
 }
 
 var stringValueSpecifiers = []string{
-	"author", "body", "date", "description", "tags", "title", "url",
+	"author", "body", "date", "description", "note", "tags", "title", "url",
 }
 
 // flags that specify section fields as a single string value
@@ -69,7 +73,7 @@ type options struct {
 func getOptions() *options {
 	b := map[string]*bool{}
 	s := map[string]*string{}
-	boolFlags := append(append([]string{"verbose"}, boolValueSpecifiers...), boolBodySpecifiers...)
+	boolFlags := append(append(append([]string{"verbose"}, boolValueSpecifiers...), boolBodySpecifiers...), boolSectionMatchers...)
 	stringFlags := []string{
 		// file matchers
 		"dir", "file",
@@ -190,6 +194,7 @@ func (o *options) matchingFiles() ([]string, error) {
 }
 
 type sectionMatcher struct {
+	b     map[string]bool
 	e     map[string]string
 	m     map[string]*regexp.Regexp
 	etags []string
@@ -197,7 +202,17 @@ type sectionMatcher struct {
 }
 
 func (o *options) sectionMatcher() (*sectionMatcher, error) {
-	sm := &sectionMatcher{map[string]string{}, map[string]*regexp.Regexp{}, []string{}, []string{}}
+	sm := &sectionMatcher{map[string]bool{}, map[string]string{}, map[string]*regexp.Regexp{}, []string{}, []string{}}
+	count := 0
+	for _, name := range []string{"note", "url"} {
+		if o.b[name] {
+			sm.b[name] = true
+			count++
+		}
+	}
+	if count > 1 {
+		return nil, errors.New("Only one of --note and --url can be specified")
+	}
 	for _, s := range sectionMatchers {
 		count := 0
 		if o.s["e"+s] != "" {
@@ -229,6 +244,13 @@ func (o *options) sectionMatcher() (*sectionMatcher, error) {
 }
 
 func (sm *sectionMatcher) matches(sct *webnotes.Section) bool {
+	bools := true
+	if sm.b["note"] {
+		bools = bools && sct.Note != ""
+	}
+	if sm.b["url"] {
+		bools = bools && sct.URL != ""
+	}
 	equals := true
 	for name, value := range sm.e {
 		if name == "body" {
@@ -239,6 +261,8 @@ func (sm *sectionMatcher) matches(sct *webnotes.Section) bool {
 			}
 		} else if name == "host" {
 			equals = equals && sct.EqualsHost(value)
+		} else if name == "note" {
+			equals = equals && sct.Note == value
 		} else if name == "tags" {
 			// this is handled below
 		} else if name == "url" {
@@ -264,6 +288,8 @@ func (sm *sectionMatcher) matches(sct *webnotes.Section) bool {
 				// TODO: what about the error here?
 				matches = matches && regexp_.Match([]byte(host))
 			}
+		} else if name == "note" {
+			matches = matches && regexp_.Match([]byte(sct.Note))
 		} else if name == "tags" {
 			// this is handled below
 		} else if name == "url" {
@@ -285,7 +311,7 @@ func (sm *sectionMatcher) matches(sct *webnotes.Section) bool {
 	if len(sm.mtags) > 0 {
 		tags = tags && sct.FieldHasValue("tags", sm.mtags)
 	}
-	return equals && matches && tags
+	return bools && equals && matches && tags
 }
 
 func (sm *sectionMatcher) matchingSections(filePath string) (*webnotes.WebNote, []int, error) {
@@ -352,7 +378,8 @@ func (h *httpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if parts[0] == "file" {
 			filePath := filepath.Join(parts[1:len(parts)]...)
-			h.pageFile(w, filePath, "file: "+filePath)
+			urlPath := fmt.Sprintf("/file/%s", filePath)
+			h.pageFile(w, filePath, urlPath, "file: "+filePath)
 		} else if parts[0] == "authors" {
 			if len(parts) > 2 {
 				h.pageMessage(w, "Invalid url")
@@ -378,7 +405,7 @@ func (h *httpHandler) pageError(w http.ResponseWriter, err error) {
 	h.pageMessage(w, err.Error())
 }
 
-func (h *httpHandler) pageFile(w http.ResponseWriter, filePath string, msg string) {
+func (h *httpHandler) pageFile(w http.ResponseWriter, filePath, urlPath, msg string) {
 	wn, err := webnotes.LoadWebNote(filePath)
 	if err != nil {
 		h.pageError(w, err)
@@ -388,7 +415,15 @@ func (h *httpHandler) pageFile(w http.ResponseWriter, filePath string, msg strin
 	fmt.Fprintf(w, "<a href=\"/\">main</a> | %s\n", msg)
 	for _, sct := range wn.Sections {
 		fmt.Fprintf(w, "<hr>\n")
-		fmt.Fprintf(w, "<p><a href=\"%s\">%s</a></p>\n", sct.URL, sct.URL)
+		if sct.Note != "" {
+			fmt.Fprintf(w, "<p><a id=\"%s\" href=\"%s#%s\">#</a> note://%s</a></p>\n", sct.Note, urlPath, sct.Note, sct.Note)
+		} else if sct.URL != "" {
+			md5_ := fmt.Sprintf("%x", md5.Sum([]byte(sct.URL)))
+			fmt.Fprintf(w, "<p><a id=\"%s\" href=\"%s#%s\">#</a> <a href=\"%s\">%s</a></p>\n", md5_, urlPath, md5_, sct.URL, sct.URL)
+		} else {
+			// this should not happen with a well formed section
+			fmt.Fprintf(w, "<p><a href=\"https://example.com\">https://example.com</a></p>\n")
+		}
 		for _, field := range sct.Fields {
 			fmt.Fprintf(w, "<p>%s: %s</p>\n", field.Name, strings.Join(field.Values, ","))
 		}
@@ -428,7 +463,8 @@ func (h *httpHandler) pageIndexFile(w http.ResponseWriter, indexName string, md5
 		return
 	}
 	filePath := filepath.Join(webnotes.IndexPath, indexName, fmt.Sprintf("%s.wn", md5_))
-	h.pageFile(w, filePath, indexName[0:len(indexName)-1]+": "+name)
+	urlPath := fmt.Sprintf("/%s/%s", indexName, md5_)
+	h.pageFile(w, filePath, urlPath, indexName[0:len(indexName)-1]+": "+name)
 }
 
 func (h *httpHandler) pageIndex(w http.ResponseWriter, indexName string) {
@@ -487,6 +523,9 @@ func usage() {
 	fmt.Println("  Defaults to all files.")
 	fmt.Println("  --dir <directory>")
 	fmt.Println("  --file <file>")
+	fmt.Println(" bool webnote selectors:")
+	fmt.Println("  --note : matches notes")
+	fmt.Println("  --url : matchers urls")
 	fmt.Println(" string webnote selectors:")
 	fmt.Println("  These select which webnotes to operate on.")
 	fmt.Println("  e version for equals")
@@ -497,6 +536,7 @@ func usage() {
 	fmt.Println("  --edescription, mdescription <string>: description field")
 	fmt.Println("  --eerror, merror <string>: error field")
 	fmt.Println("  --ehost, mhost <string>: host of url")
+	fmt.Println("  --enote, mnote <string>: note string")
 	fmt.Println("  --estatus, mstatus <string>: status field")
 	fmt.Println("  --etags, mtags <string>: tags field")
 	fmt.Println("  --etitle, mtitle <string>: title field")
@@ -524,6 +564,7 @@ func usage() {
 	fmt.Println("  --vbody <body of webnote>")
 	fmt.Println("  --vdate <date of webnote>")
 	fmt.Println("  --vdescription <description of webnote>")
+	fmt.Println("  --vnote <note string>")
 	fmt.Println("  --vtags <tags for webnote>")
 	fmt.Println("  --vtitle <webnote title>")
 	fmt.Println("  --vurl <webnote url>")
@@ -561,12 +602,18 @@ func mainAdd(o *options) error {
 	if err != nil {
 		return err
 	}
+	note := o.s["vnote"]
 	// TODO: verify url is right format?
 	url := o.s["vurl"]
-	if len(url) == 0 {
-		return errors.New("Must specifiy --vurl")
+	if note == "" && url == "" {
+		return errors.New("Must specify --vnote or --vurl")
+	} else if note != "" && url != "" {
+		return errors.New("Can only specify one of -vnote and -vurl")
 	}
-	section := webnotes.NewSection(url)
+	section, err := webnotes.NewSection(note, url)
+	if err != nil {
+		return err
+	}
 	if o.b["date"] {
 		section.SetDate()
 	}
@@ -585,22 +632,24 @@ func mainAdd(o *options) error {
 	}
 	section.SetTags(tags)
 	if o.hasGetSpecifier() {
-		doc, err := section.Get()
-		if err == nil {
-			if o.b["images"] {
-				section.SetBody(webnotes.ContentImages(doc))
-			}
-			if o.b["links"] {
-				section.SetBody(webnotes.ContentLinks(doc))
-			}
-			if o.b["p"] {
-				section.SetBody(webnotes.ContentP(doc))
-			}
-			if o.b["text"] {
-				section.SetBody(webnotes.ContentText(doc))
-			}
-			if o.b["title"] {
-				section.SetFieldValue("title", webnotes.ContentTitle(doc))
+		if section.URL != "" {
+			doc, err := section.Get()
+			if err == nil {
+				if o.b["images"] {
+					section.SetBody(webnotes.ContentImages(doc))
+				}
+				if o.b["links"] {
+					section.SetBody(webnotes.ContentLinks(doc))
+				}
+				if o.b["p"] {
+					section.SetBody(webnotes.ContentP(doc))
+				}
+				if o.b["text"] {
+					section.SetBody(webnotes.ContentText(doc))
+				}
+				if o.b["title"] {
+					section.SetFieldValue("title", webnotes.ContentTitle(doc))
+				}
 			}
 		}
 	}
@@ -725,24 +774,28 @@ func mainDuplicates(o *options) error {
 	if err != nil {
 		return err
 	}
-	urls := make(map[string][]string)
+	ids := make(map[string][]string)
 	for _, fp := range fps {
 		wn, indexes, err := sm.matchingSections(fp)
 		if err != nil {
 			return err
 		}
 		for _, i := range indexes {
-			_, ok := urls[wn.Sections[i].URL]
+			id, err := wn.Sections[i].ID()
+			if err != nil {
+				return err
+			}
+			_, ok := ids[id]
 			if ok {
-				urls[wn.Sections[i].URL] = append(urls[wn.Sections[i].URL], fp)
+				ids[id] = append(ids[id], fp)
 			} else {
-				urls[wn.Sections[i].URL] = []string{fp}
+				ids[id] = []string{fp}
 			}
 		}
 	}
-	for url, files := range urls {
+	for id, files := range ids {
 		if len(files) > 1 {
-			fmt.Println(strings.Join(files, ",") + ": " + url)
+			fmt.Println(strings.Join(files, ",") + ": " + id)
 		}
 	}
 	return nil
@@ -785,26 +838,27 @@ func mainFill(o *options) error {
 				}
 			}
 			if o.hasGetSpecifier() {
-				doc, err := wn.Sections[i].Get()
-				if err == nil {
-					if o.b["images"] {
-						wn.Sections[i].FillBody(webnotes.ContentImages(doc))
-					}
-					if o.b["links"] {
-						wn.Sections[i].FillBody(webnotes.ContentLinks(doc))
-					}
-					if o.b["p"] {
-						wn.Sections[i].FillBody(webnotes.ContentP(doc))
-					}
-					if o.b["text"] {
-						wn.Sections[i].FillBody(webnotes.ContentText(doc))
-					}
-					if o.b["title"] {
-						wn.Sections[i].FillFieldValue("title", webnotes.ContentTitle(doc))
+				if wn.Sections[i].URL != "" {
+					doc, err := wn.Sections[i].Get()
+					if err == nil {
+						if o.b["images"] {
+							wn.Sections[i].FillBody(webnotes.ContentImages(doc))
+						}
+						if o.b["links"] {
+							wn.Sections[i].FillBody(webnotes.ContentLinks(doc))
+						}
+						if o.b["p"] {
+							wn.Sections[i].FillBody(webnotes.ContentP(doc))
+						}
+						if o.b["text"] {
+							wn.Sections[i].FillBody(webnotes.ContentText(doc))
+						}
+						if o.b["title"] {
+							wn.Sections[i].FillFieldValue("title", webnotes.ContentTitle(doc))
+						}
 					}
 				}
 			}
-
 		}
 		if len(indexes) > 0 {
 			err = webnotes.SaveWebNote(wn)
@@ -849,7 +903,9 @@ func mainHead(o *options) error {
 			return err
 		}
 		for _, i := range indexes {
-			wn.Sections[i].Head()
+			if wn.Sections[i].URL != "" {
+				wn.Sections[i].Head()
+			}
 		}
 		if len(indexes) > 0 {
 			err = webnotes.SaveWebNote(wn)
@@ -866,7 +922,6 @@ func mainHttp(o *options) error {
 	if err != nil {
 		return err
 	}
-
 	http.Handle("/", httpHandler)
 	return http.ListenAndServe(":8080", nil)
 }
@@ -967,22 +1022,24 @@ func mainSet(o *options) error {
 				wn.Sections[i].SetField("tags", tags)
 			}
 			if o.hasGetSpecifier() {
-				doc, err := wn.Sections[i].Get()
-				if err == nil {
-					if o.b["images"] {
-						wn.Sections[i].SetBody(webnotes.ContentImages(doc))
-					}
-					if o.b["links"] {
-						wn.Sections[i].SetBody(webnotes.ContentLinks(doc))
-					}
-					if o.b["p"] {
-						wn.Sections[i].SetBody(webnotes.ContentP(doc))
-					}
-					if o.b["text"] {
-						wn.Sections[i].SetBody(webnotes.ContentText(doc))
-					}
-					if o.b["title"] {
-						wn.Sections[i].SetFieldValue("title", webnotes.ContentTitle(doc))
+				if wn.Sections[i].URL != "" {
+					doc, err := wn.Sections[i].Get()
+					if err == nil {
+						if o.b["images"] {
+							wn.Sections[i].SetBody(webnotes.ContentImages(doc))
+						}
+						if o.b["links"] {
+							wn.Sections[i].SetBody(webnotes.ContentLinks(doc))
+						}
+						if o.b["p"] {
+							wn.Sections[i].SetBody(webnotes.ContentP(doc))
+						}
+						if o.b["text"] {
+							wn.Sections[i].SetBody(webnotes.ContentText(doc))
+						}
+						if o.b["title"] {
+							wn.Sections[i].SetFieldValue("title", webnotes.ContentTitle(doc))
+						}
 					}
 				}
 			}
