@@ -425,7 +425,16 @@ func (h *httpHandler) pageFile(w http.ResponseWriter, filePath, urlPath, msg str
 			fmt.Fprintf(w, "<p><a href=\"https://example.com\">https://example.com</a></p>\n")
 		}
 		for _, field := range sct.Fields {
-			fmt.Fprintf(w, "<p>%s: %s</p>\n", field.Name, strings.Join(field.Values, ","))
+			if field.Name == "tags" {
+				tags := []string{}
+				for _, tag := range field.Values {
+					md5_ := fmt.Sprintf("%x", md5.Sum([]byte(tag)))
+					tags = append(tags, fmt.Sprintf("<a href=\"/tags/%s\">%s</a>", md5_, tag))
+				}
+				fmt.Fprintf(w, "<p>tags: %s</p>\n", strings.Join(tags, ", "))
+			} else {
+				fmt.Fprintf(w, "<p>%s: %s</p>\n", field.Name, strings.Join(field.Values, ", "))
+			}
 		}
 		if len(sct.Body) > 0 {
 			fmt.Fprintf(w, "%s\n", webnotes.MarkdownToHTML(strings.Join(sct.Body, "\n")))
