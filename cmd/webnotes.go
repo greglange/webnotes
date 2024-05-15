@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	"os"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -583,25 +584,32 @@ func usage() {
 }
 
 func main() {
+	code := 0
+	defer func() {
+		os.Exit(code)
+	}()
 	o := getOptions()
-	var err error
 	var mainFunc func(*options) error
 	for k, v := range mainFuncs {
 		if o.b[k] {
 			if mainFunc != nil {
-				err = errors.New("Only one main option allowed")
+				fmt.Println("Only one main option allowed")
+				code = 1
+				return
 			}
 			mainFunc = v
 		}
 	}
 	if mainFunc == nil {
 		fmt.Println("You must choose a main option")
-	} else if err != nil {
-		fmt.Println(err)
+		code = 1
+		return
 	} else {
-		err = mainFunc(o)
+		err := mainFunc(o)
 		if err != nil {
 			fmt.Println(err)
+			code = 1
+			return
 		}
 	}
 }
