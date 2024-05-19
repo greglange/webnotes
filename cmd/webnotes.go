@@ -392,20 +392,23 @@ func (h *httpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.pageMessage(w, "Invalid url")
 			return
 		}
-		if parts[0] == "file" {
-			filePath := filepath.Join(parts[1:len(parts)]...)
-			urlPath := fmt.Sprintf("/file/%s", filePath)
-			h.pageFile(w, filePath, urlPath, "file: "+filePath)
-		} else if parts[0] == "authors" {
+		if parts[0] == "authors" {
 			if len(parts) > 2 {
 				h.pageMessage(w, "Invalid url")
 			}
 			h.pageIndexFile(w, "authors", parts[1])
+		} else if parts[0] == "file" {
+			filePath := filepath.Join(parts[1:len(parts)]...)
+			urlPath := fmt.Sprintf("/file/%s", filePath)
+			h.pageFile(w, filePath, urlPath, "file: "+filePath)
 		} else if parts[0] == "hosts" {
 			if len(parts) > 2 {
 				h.pageMessage(w, "Invalid url")
 			}
 			h.pageIndexFile(w, "hosts", parts[1])
+		} else if parts[0] == "notes" {
+			filePath := filepath.Join(parts[1:len(parts)]...)
+			h.pageNotesIndexFile(w, filePath)
 		} else if parts[0] == "tags" {
 			if len(parts) > 2 {
 				h.pageMessage(w, "Invalid url")
@@ -534,8 +537,32 @@ func (h *httpHandler) pageNotesIndex(w http.ResponseWriter) {
 	fmt.Fprintf(w, "<html><head></head><body>\n")
 	fmt.Fprintf(w, "<a href=\"/\">main</a> | notes\n")
 	fmt.Fprintf(w, "<hr>")
+	filePath := ""
 	for _, ie := range indexEntries {
-		fmt.Fprintf(w, "<p><a href=\"/file/%s\">%s</a></p>\n", ie, ie)
+		parts := strings.Split(ie, "#")
+		if len(parts) == 2 && filePath != parts[0] {
+			filePath = parts[0]
+			fmt.Fprintf(w, "<p><a href=\"/notes/%s\">%s</a></p>\n", filePath, filePath)
+		}
+	}
+	fmt.Fprintf(w, "</body></html>")
+}
+
+func (h *httpHandler) pageNotesIndexFile(w http.ResponseWriter, filePath string) {
+	indexEntries, err := h.noteIndex()
+	if err != nil {
+		h.pageError(w, err)
+		return
+	}
+	fmt.Fprintf(w, "<html><head></head><body>\n")
+	fmt.Fprintf(w, "<a href=\"/\">main</a> | notes: %s\n", filePath)
+	fmt.Fprintf(w, "<hr>")
+	for _, ie := range indexEntries {
+		noteFile := filePath + "#"
+		if strings.HasPrefix(ie, noteFile) {
+			noteName := ie[len(noteFile):]
+			fmt.Fprintf(w, "<p><a href=\"/file/%s\">%s</a></p>\n", ie, noteName)
+		}
 	}
 	fmt.Fprintf(w, "</body></html>")
 }
