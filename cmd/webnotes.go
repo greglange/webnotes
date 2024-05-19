@@ -554,7 +554,7 @@ func usage() {
 	fmt.Println(" boolean webnote selectors:")
 	fmt.Println("  These specify the part of the webnote to operate on.")
 	fmt.Println("  --all : all fields and body")
-	fmt.Println("  --author : auhtor field")
+	fmt.Println("  --author : author field")
 	fmt.Println("  --body : body")
 	fmt.Println("  --date : date field")
 	fmt.Println("  --description : descrption field")
