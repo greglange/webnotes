@@ -331,12 +331,13 @@ func (sm *sectionMatcher) matchingSections(filePath string) (*webnotes.WebNote, 
 }
 
 type httpHandler struct {
-	o      *options
-	index_ map[string][]*webnotes.IndexEntry
+	o          *options
+	index_     map[string][]*webnotes.IndexEntry
+	noteIndex_ []string
 }
 
 func newHttpHandler(o *options) (*httpHandler, error) {
-	return &httpHandler{o, make(map[string][]*webnotes.IndexEntry)}, nil
+	return &httpHandler{o, make(map[string][]*webnotes.IndexEntry), nil}, nil
 }
 
 func (h *httpHandler) index(name string) ([]*webnotes.IndexEntry, error) {
@@ -351,6 +352,18 @@ func (h *httpHandler) index(name string) ([]*webnotes.IndexEntry, error) {
 	}
 	h.index_[name] = index
 	return index, nil
+}
+
+func (h *httpHandler) noteIndex() ([]string, error) {
+	if h.noteIndex_ == nil {
+		filePath := filepath.Join(webnotes.IndexPath, "notes", "index")
+		index, err := webnotes.LoadFile(filePath)
+		if err != nil {
+			return nil, err
+		}
+		h.noteIndex_ = index
+	}
+	return h.noteIndex_, nil
 }
 
 func (h *httpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -369,6 +382,8 @@ func (h *httpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.pageIndex(w, "hosts")
 	} else if r.URL.Path == "/files" {
 		h.pageFiles(w)
+	} else if r.URL.Path == "/notes" {
+		h.pageNotesIndex(w)
 	} else if r.URL.Path == "/tags" {
 		h.pageIndex(w, "tags")
 	} else {
@@ -499,6 +514,7 @@ func (h *httpHandler) pageMain(w http.ResponseWriter) {
 	fmt.Fprintf(w, "<p><a href=\"/authors\">authors</a></p>\n")
 	fmt.Fprintf(w, "<p><a href=\"/hosts\">hosts</a></p>\n")
 	fmt.Fprintf(w, "<p><a href=\"/files\">files</a></p>\n")
+	fmt.Fprintf(w, "<p><a href=\"/notes\">notes</a></p>\n")
 	fmt.Fprintf(w, "<p><a href=\"/tags\">tags</a></p>\n")
 	fmt.Fprintf(w, "</body></html>")
 }
@@ -507,6 +523,21 @@ func (h *httpHandler) pageMessage(w http.ResponseWriter, msg string) {
 	fmt.Fprintf(w, "<html><head></head><body>\n")
 	fmt.Fprintf(w, "<a href=\"/\">main</a> | %s\n", msg)
 	fmt.Fprintf(w, "</body></html>\n")
+}
+
+func (h *httpHandler) pageNotesIndex(w http.ResponseWriter) {
+	indexEntries, err := h.noteIndex()
+	if err != nil {
+		h.pageError(w, err)
+		return
+	}
+	fmt.Fprintf(w, "<html><head></head><body>\n")
+	fmt.Fprintf(w, "<a href=\"/\">main</a> | notes\n")
+	fmt.Fprintf(w, "<hr>")
+	for _, ie := range indexEntries {
+		fmt.Fprintf(w, "<p><a href=\"/file/%s\">%s</a></p>\n", ie, ie)
+	}
+	fmt.Fprintf(w, "</body></html>")
 }
 
 func usage() {

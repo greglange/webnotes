@@ -622,6 +622,11 @@ type IndexEntry struct {
 	MD5  string
 }
 
+type FilePathNote struct {
+	FilePath string
+	Note     string
+}
+
 func BuildIndex() error {
 	if stat, err := os.Stat(IndexPath); err == nil {
 		if stat.IsDir() {
@@ -632,7 +637,7 @@ func BuildIndex() error {
 			return errors.New(fmt.Sprintf("Error: %s file exists", IndexPath))
 		}
 	}
-	indexDirs := []string{"authors", "hosts", "tags"}
+	indexDirs := []string{"authors", "hosts", "notes", "tags"}
 	for _, dir := range indexDirs {
 		indexDir := filepath.Join(IndexPath, dir)
 		if err := os.MkdirAll(indexDir, os.ModePerm); err != nil {
@@ -645,6 +650,7 @@ func BuildIndex() error {
 	}
 	authors := make(map[string]*NameWebNote)
 	hosts := make(map[string]*NameWebNote)
+	notes := make(map[string]*FilePathNote)
 	tags := make(map[string]*NameWebNote)
 	for _, filePath := range files {
 		wn, err := LoadWebNote(filePath)
@@ -652,7 +658,14 @@ func BuildIndex() error {
 			return err
 		}
 		for _, sct := range wn.Sections {
-			if sct.URL != "" {
+			if sct.Note != "" {
+				key := fmt.Sprintf("%s#%s", filePath, sct.Note)
+				_, ok := notes[key]
+				if ok {
+					return errors.New(fmt.Sprintf("Found duplicate note section: %s", key))
+				}
+				notes[key] = &FilePathNote{filePath, sct.Note}
+			} else if sct.URL != "" {
 				host, err := sct.Host()
 				if err == nil {
 					md5_ := fmt.Sprintf("%x", md5.Sum([]byte(host)))
@@ -664,6 +677,8 @@ func BuildIndex() error {
 					}
 					ie.WebNote_.AddSection(sct)
 				}
+			} else {
+				return errors.New(fmt.Sprintf("Found section with neither note or url: %s", filePath))
 			}
 			value, ok := sct.FieldValue("author")
 			if ok {
@@ -700,6 +715,10 @@ func BuildIndex() error {
 	if err := SaveIndexFile(filePath, hosts); err != nil {
 		return err
 	}
+	filePath = filepath.Join(IndexPath, "notes", "index")
+	if err := SaveNoteIndexFile(filePath, notes); err != nil {
+		return err
+	}
 	filePath = filepath.Join(IndexPath, "tags", "index")
 	if err := SaveIndexFile(filePath, tags); err != nil {
 		return err
@@ -724,6 +743,20 @@ func LoadIndexFile(filePath string) ([]*IndexEntry, error) {
 		index = append(index, &IndexEntry{parts[1], parts[0]})
 	}
 	return index, nil
+}
+
+func LoadFile(filePath string) ([]string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	lines := []string{}
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	return lines, nil
 }
 
 func NameFromIndex(index []*IndexEntry, md5_ string) (string, error) {
@@ -755,6 +788,24 @@ func SaveIndexFile(filePath string, index map[string]*NameWebNote) error {
 	sort.Slice(indexLines, func(i, j int) bool { return indexLines[i].name < indexLines[j].name })
 	for _, line := range indexLines {
 		fmt.Fprintf(file, "%s: %s\n", line.md5_, line.name)
+	}
+	return nil
+}
+
+func SaveNoteIndexFile(filePath string, index map[string]*FilePathNote) error {
+	file, err := os.Create(filePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	keys := make([]string, 0, len(index))
+	for k := range index {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		fpn := index[k]
+		fmt.Fprintf(file, "%s#%s\n", fpn.FilePath, fpn.Note)
 	}
 	return nil
 }
