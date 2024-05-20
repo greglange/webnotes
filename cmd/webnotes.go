@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -36,6 +37,7 @@ var mainFuncs = map[string]func(*options) error{
 	"matches":    mainMatches,
 	"move":       mainMove,
 	"set":        mainSet,
+	"sort":       mainSort,
 	"tag":        mainTag,
 }
 
@@ -587,6 +589,7 @@ func usage() {
 	fmt.Println("  --matches : prints webnotes that match comand line selectors")
 	fmt.Println("  --move : moves webnotes to a different file")
 	fmt.Println("  --set : sets webnotes fields and/or bodies")
+	fmt.Println("  --sort : sorts the sections in webnote files")
 	fmt.Println("  --tag : puts a tag on webnotes")
 	fmt.Println(" file selectors:")
 	fmt.Println("  These choose which files the webnote command will operate on.")
@@ -1126,6 +1129,25 @@ func mainSet(o *options) error {
 			if err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+func mainSort(o *options) error {
+	fps, err := o.matchingFiles()
+	if err != nil {
+		return err
+	}
+	for _, fp := range fps {
+		wn, err := webnotes.LoadWebNote(fp)
+		if err != nil {
+			return err
+		}
+		slices.SortStableFunc(wn.Sections, webnotes.CompareSections)
+		err = webnotes.SaveWebNote(wn)
+		if err != nil {
+			return err
 		}
 	}
 	return nil

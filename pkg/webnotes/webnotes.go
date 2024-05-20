@@ -60,6 +60,36 @@ func NewSection(note, url string) (*Section, error) {
 	return &Section{note, url, make([]*Field, 0), make([]string, 0)}, nil
 }
 
+func CompareSections(a, b *Section) int {
+	if a.Note != "" && b.Note != "" {
+		if a.Note < b.Note {
+			return -1
+		} else {
+			return 1
+		}
+	}
+	if a.URL != "" && b.URL != "" {
+		if a.URL < b.URL {
+			return -1
+		} else {
+			return 1
+		}
+	}
+	if a.Note != "" {
+		return -1
+	}
+	if b.Note != "" {
+		return 1
+	}
+	if a.URL != "" {
+		return -1
+	}
+	if b.URL != "" {
+		return 1
+	}
+	return 0
+}
+
 // TODO: make better?
 func ContentTitle(doc *goquery.Document) string {
 	title := RemoveExtraWhitespace(doc.Find("title").Text())
