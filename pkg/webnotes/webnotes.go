@@ -535,6 +535,12 @@ func (wn *WebNote) formatLastSection() {
 	}
 }
 
+func formatNoteString(noteString string) (string, error) {
+	ns := strings.TrimSpace(noteString)
+	parts := strings.Fields(ns)
+	return strings.Join(parts, "_"), nil
+}
+
 func LoadWebNote(filePath string) (*WebNote, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -552,7 +558,11 @@ func LoadWebNote(filePath string) (*WebNote, error) {
 		lineNumber += 1
 		if strings.HasPrefix(line, "# note://") {
 			webNote.formatLastSection()
-			section, err = NewSection(line[len("# note://"):], "")
+			noteString, err := formatNoteString(line[len("# note://"):])
+			if err != nil {
+				return nil, err
+			}
+			section, err = NewSection(noteString, "")
 			if err != nil {
 				return nil, err
 			}
