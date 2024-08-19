@@ -26,6 +26,7 @@ var mainFuncs = map[string]func(*options) error{
 	"add":        mainAdd,
 	"append":     mainAppend,
 	"clear":      mainClear,
+	"combine":    mainCombine,
 	"copy":       mainCopy,
 	"delete":     mainDelete,
 	"duplicates": mainDuplicates,
@@ -578,6 +579,7 @@ func usage() {
 	fmt.Println("  --add : adds a webnote")
 	fmt.Println("  --append : appends to webnotes' bodies")
 	fmt.Println("  --clear : clears webnotes fields and/or bodies")
+	fmt.Println("  --combine : combines webnotes with the same note string or url")
 	fmt.Println("  --copy : copies webnotes to a different file")
 	fmt.Println("  --delete : deletes webnotes")
 	fmt.Println("  --duplicates : prints duplicate webnotes")
@@ -745,6 +747,38 @@ func mainAppend(o *options) error {
 	// only works on the body
 	// TODO: main
 	fmt.Println("Not implemented")
+	return nil
+}
+
+func mainCombine(o *options) error {
+	fps, err := o.matchingFiles()
+	if err != nil {
+		return err
+	}
+	for _, fp := range fps {
+		in, err := webnotes.LoadWebNote(fp)
+		if err != nil {
+			return err
+		}
+		out := webnotes.NewWebNote(fp)
+		for _, inSct := range in.Sections {
+			found := false
+			for _, outSct := range out.Sections {
+				if outSct.Matches(inSct) {
+					found = true
+					outSct.Add(inSct)
+					break
+				}
+			}
+			if !found {
+				out.AddSection(inSct)
+			}
+		}
+		err = webnotes.SaveWebNote(out)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

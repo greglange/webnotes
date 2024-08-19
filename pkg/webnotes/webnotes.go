@@ -44,6 +44,19 @@ func NewField(name string) *Field {
 	return &Field{name, make([]string, 0)}
 }
 
+// Add adds the values in f2 to f.
+// Values are not overwritten in f.
+func (f *Field) Add(f2 *Field) {
+	if slices.Contains(singletonFieldNames, f.Name) {
+		return
+	}
+	for _, v := range f2.Values {
+		if !slices.Contains(f.Values, v) {
+			f.Values = append(f.Values, v)
+		}
+	}
+}
+
 type Section struct {
 	Note   string
 	URL    string
@@ -161,6 +174,25 @@ func ContentText(doc *goquery.Document) []string {
 		lines = append(lines, text)
 	}
 	return lines
+}
+
+// Add adds the content of one section to another.
+// Values in s are not overwritten by values in s2.
+func (s *Section) Add(s2 *Section) {
+	for _, inField := range s2.Fields {
+		outField, ok := s.Field(inField.Name)
+		if ok {
+			outField.Add(inField)
+		} else {
+			s.AddField(inField.Name, inField.Values)
+		}
+	}
+	if len(s2.Body) > 0 {
+		if len(s.Body) > 0 {
+			s.Body = append(s.Body, "")
+		}
+		s.Body = append(s.Body, s2.Body...)
+	}
 }
 
 func (s *Section) AddTag(tag string) {
@@ -368,6 +400,15 @@ func (s *Section) Get() (*goquery.Document, error) {
 	return doc, nil
 }
 
+func (s *Section) HasField(name string) bool {
+	for _, f := range s.Fields {
+		if f.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Section) Head() {
 	if s.URL == "" {
 		s.SetError(errors.New("Section does not have a url"))
@@ -403,6 +444,18 @@ func (s *Section) ID() (string, error) {
 		return s.Note, nil
 	} else {
 		return s.URL, nil
+	}
+}
+
+// Matches returns true if the two sections match.
+// Matching means their Notes or URLs match.
+func (s *Section) Matches(s2 *Section) bool {
+	if s.Note != "" {
+		return s.Note == s2.Note
+	} else if s.URL != "" {
+		return s.URL == s2.URL
+	} else {
+		return s2.Note == "" && s2.URL == ""
 	}
 }
 
