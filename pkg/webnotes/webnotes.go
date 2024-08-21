@@ -1106,7 +1106,7 @@ func MarkdownToHTML(markdown string) string {
 	return string(md.Render(doc, renderer))
 }
 
-// Remove ExtraWhitespace removes extra whitespace from a string.
+// ExtraWhitespace removes extra whitespace from a string.
 // This collapses all instances of consecutive whitespace to a single space.
 // This also trims space for the start and end of the string.
 func RemoveExtraWhitespace(text string) string {
