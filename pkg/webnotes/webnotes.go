@@ -32,14 +32,19 @@ const (
 	inBody    int    = 2
 )
 
+// The order to put a section's fields in when writing a webnote file.
 var orderedFieldNames []string = []string{"title", "description", "author", "date", "tags", "status", "error"}
+
+// These fields can have only one value (they are not lists).
 var singletonFieldNames []string = []string{"author", "date", "description", "error", "status", "title"}
 
+// Struct for a section's header fields.
 type Field struct {
 	Name   string
 	Values []string
 }
 
+// NewField returns an initialized Field.
 func NewField(name string) *Field {
 	return &Field{name, make([]string, 0)}
 }
@@ -57,6 +62,8 @@ func (f *Field) Add(f2 *Field) {
 	}
 }
 
+// Struct for a section of a webnote file.
+// One of Note or URL should be set.
 type Section struct {
 	Note   string
 	URL    string
@@ -64,6 +71,9 @@ type Section struct {
 	Body   []string
 }
 
+// NewSection returns an initialized Section.
+// Only one of note or url should be passed to this function.
+// An error is returned if both or neither of url are provided.
 func NewSection(note, url string) (*Section, error) {
 	if note == "" && url == "" {
 		return nil, errors.New("note or url must be given")
@@ -73,6 +83,12 @@ func NewSection(note, url string) (*Section, error) {
 	return &Section{note, url, make([]*Field, 0), make([]string, 0)}, nil
 }
 
+// CompareSections compares two sections for equality and ordering.
+// Only compares the Notes and URLs of the two sections.
+// A section with Note set "comes before" a section with a URL set.
+// Returns -1 if a is less than b.
+// Returns 0 if a equals b.
+// Returns 1 if a is greater than b.
 func CompareSections(a, b *Section) int {
 	if a.Note != "" && b.Note != "" {
 		if a.Note < b.Note {
@@ -103,13 +119,15 @@ func CompareSections(a, b *Section) int {
 	return 0
 }
 
-// TODO: make better?
+// ContentTitle returns a title from the goquery document.
+// Extra whitespace is removed from the title.
 func ContentTitle(doc *goquery.Document) string {
 	title := RemoveExtraWhitespace(doc.Find("title").Text())
 	return title
 }
 
-// TODO: make better?
+// ContentImages returns the images found in the goquery document.
+// Images are returned in Markdown format.
 func ContentImages(doc *goquery.Document) []string {
 	lines := []string{}
 	f := func(i int, s *goquery.Selection) bool {
@@ -127,7 +145,8 @@ func ContentImages(doc *goquery.Document) []string {
 	return lines
 }
 
-// TODO: make better?
+// ContentLinks returns the links found in the goquery document.
+// Links are returned in Markdown format.
 func ContentLinks(doc *goquery.Document) []string {
 	lines := []string{}
 	f := func(i int, s *goquery.Selection) bool {
@@ -146,7 +165,9 @@ func ContentLinks(doc *goquery.Document) []string {
 	return lines
 }
 
-// TODO: make better?
+// ContentP returns the text content of the goquery document.
+// It searches for the content between <p></p> html tags.
+// It removes extra whitespace.
 func ContentP(doc *goquery.Document) []string {
 	content := []string{}
 	doc.Find("p").Each(func(_ int, s *goquery.Selection) {
@@ -161,7 +182,7 @@ func ContentP(doc *goquery.Document) []string {
 	return content
 }
 
-// TODO: make better?
+// ContentText returns the text content of the goquery document.
 func ContentText(doc *goquery.Document) []string {
 	lines := []string{}
 	body := doc.Find("body")
@@ -195,6 +216,8 @@ func (s *Section) Add(s2 *Section) {
 	}
 }
 
+// AddTag adds the provided tag to the section.
+// Duplicate tags are removed.
 func (s *Section) AddTag(tag string) {
 	field, ok := s.Field("tags")
 	if !ok {
@@ -207,44 +230,57 @@ func (s *Section) AddTag(tag string) {
 	field.Values = slices.Compact[[]string, string](field.Values)
 }
 
+// AddTags adds the provided tags to the section.
+// Duplicate tags are removed.
 func (s *Section) AddTags(tags []string) {
 	for _, tag := range tags {
 		s.AddTag(tag)
 	}
 }
 
-// TODO check if field exists?
+// AddField adds the to the section.
+// TODO: check if field already exists and overwrite it?
 func (s *Section) AddField(name string, values []string) {
 	s.Fields = append(s.Fields, &Field{name, values})
 }
 
+// AppendBody adds the line to the end of the section's body.
 func (s *Section) AppendBody(line string) {
 	s.Body = append(s.Body, line)
 }
 
+// DeleteAll deletes all the fields and the body from a section.
 func (s *Section) DeleteAll() {
 	s.DeleteAllFields()
 	s.DeleteBody()
 }
 
+// DeleteAllFields deletes all the fields from a section.
 func (s *Section) DeleteAllFields() {
 	s.Fields = make([]*Field, 0)
 }
 
+// DeleteBody deletes the body from a section.
 func (s *Section) DeleteBody() {
 	s.Body = make([]string, 0)
 }
 
+// DeleteField deletes the field from a section.
+// The field to delete is specified by name.
 func (s *Section) DeleteField(name string) {
 	s.Fields = slices.DeleteFunc(s.Fields, func(f *Field) bool { return f.Name == name })
 }
 
+// DeleteFields deletes the provided fields from the section.
+// The fields to delete are specified by name.
 func (s *Section) DeleteFields(names ...string) {
 	for _, name := range names {
 		s.DeleteField(name)
 	}
 }
 
+// DeleteTag deletes the provided tag from the section.
+// It deletes the tags field if there are no tags left.
 func (s *Section) DeleteTag(tag string) {
 	field, ok := s.Field("tags")
 	if !ok {
@@ -263,12 +299,16 @@ func (s *Section) DeleteTag(tag string) {
 	}
 }
 
+// DeleteTags deletes the provided tags from the section.
+// It deletes the tags field if no tags are left.
 func (s *Section) DeleteTags(tags []string) {
 	for _, tag := range tags {
 		s.DeleteTag(tag)
 	}
 }
 
+// EqualsHost checks the host of the URL of the section for equality.
+// Returns true if the two are equal and false otherwise.
 func (s *Section) EqualsHost(host string) bool {
 	if s.URL == "" {
 		return false
@@ -284,6 +324,9 @@ func (s *Section) EqualsHost(host string) bool {
 	return url_.Host == host
 }
 
+// Field returns the field from the Section with the provided name.
+// Returns *Field, true if the Section has the Section.
+// Returns nil, false if the Section does not have the field.
 func (s *Section) Field(name string) (*Field, bool) {
 	for _, field := range s.Fields {
 		if name == field.Name {
@@ -293,6 +336,9 @@ func (s *Section) Field(name string) (*Field, bool) {
 	return nil, false
 }
 
+// FieldEqualsValue returns true if the field equals the provided value.
+// It accepts the name of the field and the value to test.
+// Returns true if the field exists and has the provided value.
 func (s *Section) FieldEqualsValue(name string, value string) bool {
 	field, ok := s.Field(name)
 	if !ok {
@@ -304,11 +350,15 @@ func (s *Section) FieldEqualsValue(name string, value string) bool {
 	return field.Values[0] == value
 }
 
+// FieldHasValue checks if a section's field has one or more values.
+// The field is specified by name.
+// The values to be checked are provided as a slice of strings.
+// Returns true if the field exists and has at least one of the values to check.
 func (s *Section) FieldHasValue(name string, values []string) bool {
 	if len(values) == 0 {
 		return true
 	}
-	fieldValues, ok := s.FieldValues("tags")
+	fieldValues, ok := s.FieldValues(name)
 	if !ok {
 		return false
 	}
@@ -321,11 +371,15 @@ func (s *Section) FieldHasValue(name string, values []string) bool {
 	return count > 0
 }
 
+// FieldHasValues checks if a section's field has all of the provided values.
+// The field is specified by name.
+// The values to be checked are provided as a slice of strings.
+// Returns true if the field exits and all values to check are found.
 func (s *Section) FieldHasValues(name string, values []string) bool {
 	if len(values) == 0 {
 		return true
 	}
-	fieldValues, ok := s.FieldValues("tags")
+	fieldValues, ok := s.FieldValues(name)
 	if !ok {
 		return false
 	}
@@ -338,6 +392,9 @@ func (s *Section) FieldHasValues(name string, values []string) bool {
 	return count == len(values)
 }
 
+// FieldValue returns the value of a section's field.
+// It returns (value, true) if the field is found and it has one value.
+// It returns ("", false) if the field is not found or the field is set to a list of values.
 func (s *Section) FieldValue(name string) (string, bool) {
 	for _, field := range s.Fields {
 		if name == field.Name {
@@ -349,21 +406,26 @@ func (s *Section) FieldValue(name string) (string, bool) {
 	return "", false
 }
 
+// FieldValues returns the values of a section's field.
+// It returns (values, true) if the field is found.
+// It returns (nil, false) if the field is not found.
 func (s *Section) FieldValues(name string) ([]string, bool) {
 	for _, field := range s.Fields {
 		if name == field.Name {
 			return field.Values, true
 		}
 	}
-	return []string{}, false
+	return nil, false
 }
 
+// FillBody sets the body of the section to the lines provided if the section does not already have a body.
 func (s *Section) FillBody(lines []string) {
 	if len(s.Body) == 0 {
 		s.Body = lines
 	}
 }
 
+// FillDate sets the date field of the section to the current date if the date is not areadly set.
 func (s *Section) FillDate() {
 	_, ok := s.Field("date")
 	if !ok {
@@ -371,6 +433,9 @@ func (s *Section) FillDate() {
 	}
 }
 
+// FillFieldValue sets the value of the field if it does not already have a value.
+// Field is specified by name.
+// Value is provided as a string.
 func (s *Section) FillFieldValue(name string, value string) {
 	_, ok := s.Field(name)
 	if !ok {
@@ -378,6 +443,12 @@ func (s *Section) FillFieldValue(name string, value string) {
 	}
 }
 
+// Get gets the html document for the URL of the section.
+// Returns (*goquery.Document, nil) on success.
+// Returns (nil, error) if there is an error.
+// Anything besides a 200 status code for the request is considered an error.
+// Sets the section's status if for status codes other than 200.
+// Sets the section's error if there is some error (besides an unexpected status).
 func (s *Section) Get() (*goquery.Document, error) {
 	if s.URL == "" {
 		return nil, errors.New("Section does not have a url")
@@ -400,6 +471,8 @@ func (s *Section) Get() (*goquery.Document, error) {
 	return doc, nil
 }
 
+// HasField returns true if the section has the field.
+// The field is specified by name.
 func (s *Section) HasField(name string) bool {
 	for _, f := range s.Fields {
 		if f.Name == name {
@@ -409,6 +482,10 @@ func (s *Section) HasField(name string) bool {
 	return false
 }
 
+// Head does a head on the url of the section.
+// It sets the error field for the section if there is an error.
+// It sets the status for the section on status codes besides a 200.
+// On a successful head, it deltes the error and status fields of the section.
 func (s *Section) Head() {
 	if s.URL == "" {
 		s.SetError(errors.New("Section does not have a url"))
@@ -424,6 +501,10 @@ func (s *Section) Head() {
 	}
 }
 
+// Host returns the host of the section's URL.
+// Returns (host, nil) on success.
+// Returns ("", error) on error.
+// If the section does not have a URL, this results in an error.
 func (s *Section) Host() (string, error) {
 	if s.URL == "" {
 		return "", errors.New("Section does not have a url")
@@ -435,6 +516,12 @@ func (s *Section) Host() (string, error) {
 	return url_.Host, nil
 }
 
+// ID returns the section's identification string.
+// A section's ID is its Note or URL.
+// The URL includes the http:// or https:// at the start.
+// The Note does not include the note:// at the start.
+// Returns (id, nil) on success.
+// Returns ("", error) on error.
 func (s *Section) ID() (string, error) {
 	if s.Note == "" && s.URL == "" {
 		return "", errors.New("Section has no note and url")
@@ -459,20 +546,24 @@ func (s *Section) Matches(s2 *Section) bool {
 	}
 }
 
+// SetBody sets the section's body.
 func (s *Section) SetBody(lines []string) {
 	s.Body = lines
 }
 
+// SetDate sets the section's date to the current date.
 func (s *Section) SetDate() {
 	date := time.Now().Format(time.DateOnly)
 	s.SetFieldValue("date", date)
 }
 
+// SetError sets the section's error field.
 func (s *Section) SetError(err error) {
 	s.SetFieldValue("error", err.Error())
 	s.DeleteField("status")
 }
 
+// SetField sets the field for the section to the slice of provided strings.
 func (s *Section) SetField(name string, values []string) {
 	field, ok := s.Field(name)
 	if ok {
@@ -482,27 +573,23 @@ func (s *Section) SetField(name string, values []string) {
 	}
 }
 
-func (s *Section) SetFieldString(name string, value string) {
-	if value == "" {
-		s.DeleteField(name)
-	} else {
-		s.SetField(name, []string{value})
-	}
-}
-
+// SetFieldValue sets the field for the section to the given value.
 func (s *Section) SetFieldValue(name string, value string) {
 	s.SetField(name, []string{value})
 }
 
+// SetFieldValues sets the field for the section to the slice of provided strings.
 func (s *Section) SetFieldValues(name string, values []string) {
 	s.SetField(name, values)
 }
 
+// SetStatus sets the status field for the section to the provided status.
 func (s *Section) SetStatus(status string) {
 	s.DeleteField("error")
 	s.SetFieldValue("status", status)
 }
 
+// SetTags sets the tags field for the section to the provided slice of values.
 func (s *Section) SetTags(tags []string) {
 	if len(tags) == 0 {
 		s.DeleteField("tags")
@@ -511,6 +598,8 @@ func (s *Section) SetTags(tags []string) {
 	}
 }
 
+// String returns a string value of the section.
+// The string is suitable for writing to a webnote file.
 func (s *Section) String() string {
 	lines := make([]string, 0)
 	if s.Note != "" {
@@ -564,19 +653,27 @@ func (s *Section) String() string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
+// Struct for a webnote file.
+// FilePath is the path on disk for the file.
+// Sections is a slice of the sections of th WebNote in order.
 type WebNote struct {
 	FilePath string
 	Sections []*Section
 }
 
+// NewWebNote returns an initialized WebNote.
 func NewWebNote(filePath string) *WebNote {
 	return &WebNote{filePath, make([]*Section, 0)}
 }
 
+// AddSection adds a seciton to the WebNote.
+// Section is added to the end of the list of sections.
 func (wn *WebNote) AddSection(section *Section) {
 	wn.Sections = append(wn.Sections, section)
 }
 
+// formatLastSection formats the last section of the WebNote.
+// Right now this formatting is only removing a blank line at the end of the Body of the section.
 func (wn *WebNote) formatLastSection() {
 	if len(wn.Sections) > 0 {
 		section := wn.Sections[len(wn.Sections)-1]
@@ -588,12 +685,17 @@ func (wn *WebNote) formatLastSection() {
 	}
 }
 
+// formatNoteString formats the note string.
+// This removes extra spaces and turns the remaining spaces into underscores.
 func formatNoteString(noteString string) (string, error) {
 	ns := strings.TrimSpace(noteString)
 	parts := strings.Fields(ns)
 	return strings.Join(parts, "_"), nil
 }
 
+// LoadWebNote file loads a WebNote from the filePath provided.
+// Returns (*WebNote, nil) on success.
+// Returns (nil, error) on failure.
 func LoadWebNote(filePath string) (*WebNote, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -659,10 +761,17 @@ func LoadWebNote(filePath string) (*WebNote, error) {
 	return webNote, nil
 }
 
+// errorWithLineNumber makes an error with a line number.
+// This is used when parsing a WebNote file.
+// The line number helps users find were the problem is in their file.
 func errorWithLineNumber(err error, lineNumber int) error {
 	return errors.New(err.Error() + " on line " + strconv.Itoa(lineNumber))
 }
 
+// GetWebNoteFiles gets the WebNote file paths from the provided directory path.
+// This function walks the directory tree looking for WebNote files.
+// Returns ([]file_paths, nil) on success.
+// Returns (nil, error) on failure.
 func GetWebNoteFiles(directoryPath string) ([]string, error) {
 	files := make([]string, 0)
 	walk := func(path string, f os.FileInfo, err error) error {
@@ -685,6 +794,8 @@ func GetWebNoteFiles(directoryPath string) ([]string, error) {
 	return files, nil
 }
 
+// SaveWebNote file writes the WebNote to disk.
+// Returns nil on success and error on failure.
 func SaveWebNote(wn *WebNote) error {
 	file, err := os.Create(wn.FilePath)
 	if err != nil {
@@ -705,21 +816,28 @@ func SaveWebNote(wn *WebNote) error {
 	return nil
 }
 
+// Structure used when building a WebNote index.
 type NameWebNote struct {
 	Name     string
 	WebNote_ *WebNote
 }
 
+// Structure used when building a WebNote index.
 type IndexEntry struct {
 	Name string
 	MD5  string
 }
 
+// Structure used when building a WebNote index.
 type FilePathNote struct {
 	FilePath string
 	Note     string
 }
 
+// BuildIndex builds a WebNote index.
+// IndexPath is removed if it exists.
+// IndexPath is created and the index is written there.
+// The current working directory is where WebNote files are searched for.
 func BuildIndex() error {
 	if stat, err := os.Stat(IndexPath); err == nil {
 		if stat.IsDir() {
@@ -819,6 +937,9 @@ func BuildIndex() error {
 	return nil
 }
 
+// LoadIndexFile loads an index file.
+// Returns ([]*IndexEntry, nil) on success.
+// Returns (nil, error) on failure.
 func LoadIndexFile(filePath string) ([]*IndexEntry, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -838,6 +959,9 @@ func LoadIndexFile(filePath string) ([]*IndexEntry, error) {
 	return index, nil
 }
 
+// LoadFile loads a file from the provided file path.
+// returns ([]lines_in_file, nil) on success.
+// returns (nil, error) on failure.
 func LoadFile(filePath string) ([]string, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -852,6 +976,7 @@ func LoadFile(filePath string) ([]string, error) {
 	return lines, nil
 }
 
+// NameFromIndex searches an index for a name of an entry matching the provided MD5.
 func NameFromIndex(index []*IndexEntry, md5_ string) (string, error) {
 	for _, ie := range index {
 		if ie.MD5 == md5_ {
@@ -861,6 +986,9 @@ func NameFromIndex(index []*IndexEntry, md5_ string) (string, error) {
 	return "", errors.New("Unable to find index name")
 }
 
+// SaveIndexFile writes an index to a file.
+// Returns nil on success.
+// Returns error on failure.
 func SaveIndexFile(filePath string, index map[string]*NameWebNote) error {
 	file, err := os.Create(filePath)
 	if err != nil {
@@ -885,6 +1013,9 @@ func SaveIndexFile(filePath string, index map[string]*NameWebNote) error {
 	return nil
 }
 
+// SaveNoteIndexFile saves a note index file to disk.
+// Returns nil on success.
+// Returns error on failure.
 func SaveNoteIndexFile(filePath string, index map[string]*FilePathNote) error {
 	file, err := os.Create(filePath)
 	if err != nil {
@@ -903,6 +1034,10 @@ func SaveNoteIndexFile(filePath string, index map[string]*FilePathNote) error {
 	return nil
 }
 
+// FileExists checks to see if a file exists at the provided path.
+// Returns (true, nil) if the file exists.
+// Returns (false, nil) if the file does not exist.
+// Returns (false, error) if there is a failure.
 func FileExists(filePath string) (bool, error) {
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
@@ -917,7 +1052,11 @@ func FileExists(filePath string) (bool, error) {
 	return true, nil
 }
 
-// TODO: check for valid tags and remove space and stuff?
+// GetTags returns a list of tags from a tag string.
+// A tag string is a comma separated list of tags.
+// Returns ([]tags, nil) on success.
+// Returns (nil, error) on failure.
+// TODO: check for valid tag strings and return an error if an invalid tag is found.
 func GetTags(tagsString string) ([]string, error) {
 	if len(tagsString) == 0 {
 		return make([]string, 0), nil
@@ -925,6 +1064,7 @@ func GetTags(tagsString string) ([]string, error) {
 	return strings.Split(tagsString, ","), nil
 }
 
+// MarkdownToHTML returns HTML from a string containing markdown.
 func MarkdownToHTML(markdown string) string {
 	extensions := mdparser.CommonExtensions | mdparser.AutoHeadingIDs | mdparser.NoEmptyLineBeforeBlock
 	p := mdparser.NewWithExtensions(extensions)
@@ -966,6 +1106,9 @@ func MarkdownToHTML(markdown string) string {
 	return string(md.Render(doc, renderer))
 }
 
+// Remove ExtraWhitespace removes extra whitespace from a string.
+// This collapses all instances of consecutive whitespace to a single space.
+// This also trims space for the start and end of the string.
 func RemoveExtraWhitespace(text string) string {
 	re := regexp.MustCompile(`\s+`)
 	return strings.TrimSpace(re.ReplaceAllLiteralString(text, " "))
