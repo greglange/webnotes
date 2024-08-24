@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path"
@@ -19,8 +20,8 @@ import (
 
 // TODO: command line flag to specify a root directory instead of defaulting to current directory
 // TODO: check if the wrong or unused options are specified for each main?
-// TODO: add main append
 // TODO: maybe add md body specifier that tries to change html to markdown
+// TODO: maybe change options to context since it will have things that are not options
 
 var mainFuncs = map[string]func(*options) error{
 	"add":        mainAdd,
@@ -70,8 +71,9 @@ var stringValueSpecifiers = []string{
 var valueSpecifiers = []string{"author", "date", "description", "title"}
 
 type options struct {
-	b map[string]bool
-	s map[string]string
+	b     map[string]bool
+	s     map[string]string
+	stdin *os.File
 }
 
 func getOptions() *options {
@@ -104,12 +106,21 @@ func getOptions() *options {
 	}
 	flag.Usage = usage
 	flag.Parse()
-	o := options{make(map[string]bool), make(map[string]string)}
+	o := options{make(map[string]bool), make(map[string]string), nil}
 	for k, v := range b {
 		o.b[k] = *v
 	}
 	for k, v := range s {
 		o.s[k] = *v
+	}
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		// TODO: is the right thing to do on error?
+		panic(err)
+	}
+	// TODO: check to see of this works on windows
+	if !(fi.Mode()&os.ModeNamedPipe == 0) {
+		o.stdin = os.Stdin
 	}
 	return &o
 }
@@ -735,6 +746,17 @@ func mainAdd(o *options) error {
 			}
 		}
 	}
+	// TODO: should error if stdin and a body option is set?
+	// TODO: should read a limited amount of data from stdin then stop or error if there is more
+	if o.stdin != nil {
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return err
+		}
+		// TODO: handle files that have \r\n?
+		lines := strings.Split(string(data), "\n")
+		section.SetBody(lines)
+	}
 	out.AddSection(section)
 	err = webnotes.SaveWebNote(out)
 	if err != nil {
@@ -744,9 +766,44 @@ func mainAdd(o *options) error {
 }
 
 func mainAppend(o *options) error {
-	// only works on the body
-	// TODO: main
-	fmt.Println("Not implemented")
+	fps, err := o.matchingFiles()
+	if err != nil {
+		return err
+	}
+	sm, err := o.sectionMatcher()
+	if err != nil {
+		return err
+	}
+	if len(fps) != 1 {
+		return errors.New("Must specify exactly one file")
+	}
+	wn, indexes, err := sm.matchingSections(fps[0])
+	if err != nil {
+		return err
+	}
+	if len(indexes) != 1 {
+		return errors.New("Must specify exactly one section")
+	}
+	sct := wn.Sections[indexes[0]]
+	if o.s["vbody"] != "" {
+		sct.ExtendBody([]string{o.s["vbody"]})
+	}
+	// TODO: should error if stdin and a body option is set?
+	// TODO: should error if neiter vbody or stdin is set?
+	// TODO: should read a limited amount of data from stdin then stop or error if there is more
+	if o.stdin != nil {
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return err
+		}
+		// TODO: handle files that have \r\n?
+		lines := strings.Split(string(data), "\n")
+		sct.ExtendBody(lines)
+	}
+	err = webnotes.SaveWebNote(wn)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 

@@ -324,6 +324,15 @@ func (s *Section) EqualsHost(host string) bool {
 	return url_.Host == host
 }
 
+// ExtendBody adds lines to the end of the section's body.
+// If the body already has lines, a blank line added first.
+func (s *Section) ExtendBody(lines []string) {
+	if len(s.Body) > 0 {
+		s.Body = append(s.Body, "\n")
+	}
+	s.Body = append(s.Body, lines...)
+}
+
 // Field returns the field from the Section with the provided name.
 // Returns *Field, true if the Section has the Section.
 // Returns nil, false if the Section does not have the field.
